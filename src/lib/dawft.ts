@@ -77,7 +77,7 @@ const TYPE_TABLE: Record<number, { count: number; name: string }> = {
   0xd7: { count: 13, name: 'WEATHER_TEMP' },
   0xd8: { count: 13, name: 'WEATHER_TEMP_CA' },
   0xd9: { count: 13, name: 'WEATHER_TEMP_RA' },
-  0xda: { count: 1, name: 'BATT_IMG_D' },
+  0xda: { count: 11, name: 'BATT_IMG_D' },
   0xf0: { count: 1, name: 'SEPERATOR' },
   0xf1: { count: 1, name: 'HAND_HOUR' },
   0xf2: { count: 1, name: 'HAND_MINUTE' },

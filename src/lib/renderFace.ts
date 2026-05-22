@@ -160,7 +160,6 @@ const drawElement = (
     case 0xce: // BATT_IMG
     case 0xd0: // BATT_IMG_B
     case 0xd1: // BATT_IMG_C
-    case 0xda: // BATT_IMG_D
     case 0xf0: // SEPERATOR
     case 0xf4: // HAND_PIN_UPPER
     case 0xf5: // HAND_PIN_LOWER
@@ -251,6 +250,7 @@ const drawElement = (
     case 0x80: drawProgBar(ctx, lookup, (dummy.hr / 200) * 100, fd); return
     case 0x90: drawProgBar(ctx, lookup, (dummy.kcal / 500) * 100, fd); return
     case 0xa0: drawProgBar(ctx, lookup, dummy.distance, fd); return // 10 km goal
+    case 0xda: drawProgBar(ctx, lookup, dummy.battery, fd); return // BATT_IMG_D
 
     // ----- background strips (Type A holdover, occasionally seen on Type C) -----
     case 0x00:

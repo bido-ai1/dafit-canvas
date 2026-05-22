@@ -81,11 +81,16 @@ export const kindForType = (type: number): AssetSetKind => {
     type === 0xa1 ||
     type === 0xce ||
     type === 0xd0 ||
-    type === 0xd1 ||
-    type === 0xda
+    type === 0xd1
   )
-    return 'image' // logos / battery icons
-  if (type === 0x70 || type === 0x80 || type === 0x90 || type === 0xa0)
+    return 'image' // logos / single-frame battery icons
+  if (
+    type === 0x70 ||
+    type === 0x80 ||
+    type === 0x90 ||
+    type === 0xa0 ||
+    type === 0xda // BATT_IMG_D — 11-frame battery fill animation
+  )
     return 'progbar'
   if (type >= 0xf6 && type <= 0xf8) return 'animation'
   if (type === 0x00) return 'image' // BACKGROUNDS strip
