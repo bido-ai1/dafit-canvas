@@ -37,7 +37,7 @@ import {
   type ParsedElement,
   type ParsedWatchfaceJson,
 } from './faceN'
-import type { DummyState } from './renderFace'
+import { defaultDummy, renderPreviewBitmap, type DummyState } from './renderFace'
 import type { DummyStateN } from './renderFaceN'
 import type {
   AssetSet,
@@ -448,9 +448,52 @@ export const importZip = async (file: File): Promise<EditorProject> => {
 // ---------- export: TypeC project → bin ----------
 
 /** Re-pack a Type C project. Materializes the project (layers + assetSets →
- *  blob array) and feeds the dawft encoder. */
-export const exportTypeCBin = (project: TypeCProject): Uint8Array => {
+ *  blob array) and feeds the dawft encoder. Appends a 140×163 thumbnail
+ *  as the trailing blob — that's the slot the watch firmware's face-picker
+ *  reads to render a preview tile. ~85 % of the corpus carries one; we
+ *  always generate ours from the live face so the picker thumbnail
+ *  matches the user's current design instead of going stale.
+ *
+ *  Pass `dummy` to control the dummy state used for rendering (e.g. so
+ *  the export's preview matches what the user sees in the editor canvas).
+ *  When omitted we fall back to the default — current local time + the
+ *  factory placeholder steps/hr/etc. values. Non-browser callers (Node
+ *  tests) get a binary without a preview blob; the watch tolerates that. */
+export const exportTypeCBin = (
+  project: TypeCProject,
+  dummy?: DummyState,
+  options?: { skipPreview?: boolean },
+): Uint8Array => {
   const { header, blobs } = materializeTypeC(project)
+  // The size-projection path on the editor toolbar calls this on every
+  // project change — running the canvas renderer there would be wasteful.
+  // Real exports (Export BIN, Export ZIP, Send to watch) leave the flag
+  // unset so the preview is always fresh.
+  const preview = options?.skipPreview
+    ? null
+    : renderPreviewBitmap(header, blobs, dummy ?? defaultDummy())
+  // Compose the final blob list. The preview blob has no `faceData`
+  // entry — `dataCount` stays the same but `blobCount` bumps by 1.
+  const allBlobs: DecodedBlob[] = preview
+    ? [
+        ...blobs,
+        {
+          index: blobs.length,
+          faceDataIdx: null,
+          type: null,
+          typeName: 'PREVIEW',
+          width: preview.width,
+          height: preview.height,
+          // RLE_LINE is what every corpus preview uses — the compressor
+          // falls back to raw automatically if RLE wouldn't shrink it.
+          compression: 'RLE_LINE',
+          rawSize: preview.width * preview.height * 2,
+          rgba: preview.rgba,
+          raw: new Uint8Array(0),
+        },
+      ]
+    : blobs
+  const totalBlobCount = allBlobs.length
   const activeFaceData = header.faceData
     .slice(0, header.dataCount)
     .map((fd) => ({ ...fd }))
@@ -458,12 +501,12 @@ export const exportTypeCBin = (project: TypeCProject): Uint8Array => {
     fileType: 'C',
     fileID: header.fileID,
     faceNumber: header.faceNumber,
-    blobCount: header.blobCount,
+    blobCount: totalBlobCount,
     animationFrames: header.animationFrames,
     faceData: activeFaceData,
-    compressions: new Map(blobs.map((b) => [b.index, b.compression])),
+    compressions: new Map(allBlobs.map((b) => [b.index, b.compression])),
   }
-  const packBlobs: PackTypeCBlob[] = blobs.map((b) =>
+  const packBlobs: PackTypeCBlob[] = allBlobs.map((b) =>
     b.rgba && b.width !== null && b.height !== null
       ? { kind: 'bitmap', width: b.width, height: b.height, rgba: b.rgba }
       : { kind: 'raw', data: b.raw },
@@ -814,8 +857,14 @@ export const exportFaceNZip = async (project: FaceNProject): Promise<Blob> => {
 
 // ---------- unified export ----------
 
-export const exportBin = (project: EditorProject): Uint8Array =>
-  project.format === 'typeC' ? exportTypeCBin(project) : exportFaceNBin(project)
+export const exportBin = (
+  project: EditorProject,
+  dummy?: DummyState,
+  options?: { skipPreview?: boolean },
+): Uint8Array =>
+  project.format === 'typeC'
+    ? exportTypeCBin(project, dummy, options)
+    : exportFaceNBin(project)
 
 export const exportZip = (project: EditorProject): Promise<Blob> =>
   project.format === 'typeC' ? exportTypeCZip(project) : exportFaceNZip(project)

@@ -118,7 +118,11 @@ function Editor() {
   const projectedSize = useMemo(() => {
     if (!deferredProject) return null;
     try {
-      return exportBin(deferredProject).byteLength;
+      // Skip the preview-blob render for the live size estimate — it
+      // runs on every project change and the preview only adds ~10–40 KB
+      // anyway. Real exports below regenerate the preview properly.
+      return exportBin(deferredProject, undefined, { skipPreview: true })
+        .byteLength;
     } catch {
       return null;
     }

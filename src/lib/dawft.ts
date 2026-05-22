@@ -258,9 +258,15 @@ const decodeRleLine = (
   let s = tableEnd
   for (let y = 0; y < height; y++) {
     const rowEnd = lineEnds[y]
+    // Defence against malformed blobs whose line-end table claims rows
+    // extend past the actual buffer. We decode as much as we can rather
+    // than failing the whole blob — a partial preview reads better than
+    // a "raw" placeholder, especially when the truncation is on the last
+    // row only (e.g. one byte of trailing padding shaved off during a
+    // file copy).
+    const cappedRowEnd = Math.min(rowEnd, src.byteLength)
     let written = 0
-    while (s < rowEnd) {
-      if (s + 2 >= src.byteLength) return null
+    while (s + 2 < src.byteLength && s < cappedRowEnd) {
       const high = src[s]
       const low = src[s + 1]
       const count = src[s + 2]
@@ -271,11 +277,16 @@ const decodeRleLine = (
       }
       s += 3
     }
-    // pad any leftover row width with the last seen pixel's transparent black
+    // pad any leftover row width with an opaque sentinel so the
+    // returned buffer is fully populated even if the row was truncated.
     while (written < width) {
       out[(y * width + written) * 4 + 3] = 0xff
       written += 1
     }
+    // If the line-end claimed to be past the EOF, jump s to it so the
+    // next row's reads start at the right table-declared boundary —
+    // otherwise the rest of the rows shift and produce garbage.
+    if (s < rowEnd) s = rowEnd
   }
   return out
 }
@@ -314,10 +325,14 @@ export const decodeFile = (data: Uint8Array): {
       width = fd.w
       height = fd.h
     } else if (i === header.blobCount - 1) {
-      // dawft assumes the trailing blob with no faceData entry is a 140x163
-      // preview thumbnail used by the watch's face picker.
+      // Trailing blob with no faceData entry is the face-picker preview
+      // thumbnail. dawft.c documents this as 140×163 but the actual
+      // MoYoung firmware writes a square 140×140 — the line-ends table
+      // has 140 entries, not 163. Reading 163 walks the table into the
+      // RLE data and produces nonsense offsets. Verified across the
+      // corpus: every detectable preview has H=140.
       width = 140
-      height = 163
+      height = 140
       name = 'PREVIEW'
     }
 

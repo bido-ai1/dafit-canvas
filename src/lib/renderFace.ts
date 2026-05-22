@@ -392,3 +392,47 @@ export const renderFace = (
 
   return { width, height }
 }
+
+/** Render the face to a 140×140 RGBA buffer suitable for the watch's
+ *  face-picker preview thumbnail. dawft documents the slot as 140×163
+ *  but every corpus face we've measured uses a square 140×140 (the
+ *  line-ends table has 140 entries, not 163). Matching the firmware
+ *  convention here keeps round-trip decoding working.
+ *
+ *  Source and target are both 1:1 aspect ratio (240×240 → 140×140), so
+ *  no centre-cropping is needed — a clean square downscale.
+ *
+ *  Returns `null` when called in a non-DOM context (Node-side tests) so
+ *  callers can skip the preview cleanly. Browser exports always get a
+ *  fresh preview from whatever the current canvas would draw. */
+const PREVIEW_SIZE = 140
+
+export const renderPreviewBitmap = (
+  header: FaceHeader,
+  blobs: DecodedBlob[],
+  dummy: DummyState,
+): { rgba: Uint8ClampedArray; width: number; height: number } | null => {
+  if (typeof document === 'undefined') return null
+  // Step 1: paint the full 240×240 face onto an offscreen canvas.
+  const full = document.createElement('canvas')
+  full.width = 240
+  full.height = 240
+  renderFace(full, header, blobs, dummy)
+  // Step 2: down-sample 240→140. Both square, so no aspect adjustment.
+  const thumb = document.createElement('canvas')
+  thumb.width = PREVIEW_SIZE
+  thumb.height = PREVIEW_SIZE
+  const tctx = thumb.getContext('2d')
+  if (!tctx) return null
+  // High-quality downscale — preview is a thumbnail, not pixel art any
+  // more, so smoothing reads better than nearest-neighbour at this size.
+  tctx.imageSmoothingEnabled = true
+  tctx.imageSmoothingQuality = 'high'
+  tctx.drawImage(full, 0, 0, 240, 240, 0, 0, PREVIEW_SIZE, PREVIEW_SIZE)
+  const imgData = tctx.getImageData(0, 0, PREVIEW_SIZE, PREVIEW_SIZE)
+  return {
+    rgba: imgData.data,
+    width: PREVIEW_SIZE,
+    height: PREVIEW_SIZE,
+  }
+}

@@ -26,7 +26,7 @@ import {
   type FaceN,
   type ParsedWatchfaceJson,
 } from '../lib/faceN'
-import { defaultDummy } from '../lib/renderFace'
+import { defaultDummy, renderPreviewBitmap } from '../lib/renderFace'
 import { defaultDummyN, type DummyStateN } from '../lib/renderFaceN'
 
 type DecodedBitmap = { width: number; height: number; rgba: Uint8ClampedArray }
@@ -125,15 +125,58 @@ function Pack() {
             `Missing ${padIdx(i)}.bmp or ${padIdx(i)}.raw for blob index ${i}`,
           )
         }
-        const bin = packTypeC({ config, blobs: orderedBlobs })
-        const { header, blobs } = decodeFile(bin)
+        const bin0 = packTypeC({ config, blobs: orderedBlobs })
+        const decoded0 = decodeFile(bin0)
+
+        // Auto-append a face-picker preview thumbnail as the trailing blob,
+        // matching the editor's Export BIN behaviour (~84.5% of corpus
+        // faces carry one). Skip if the ZIP already declared a trailing
+        // unreferenced blob — that's the user's own preview.
+        const last = decoded0.blobs[decoded0.blobs.length - 1]
+        const hasPreviewAlready = !!last && last.faceDataIdx === null
+
+        let finalBin = bin0
+        let finalConfig = config
+        let finalHeader = decoded0.header
+        let finalBlobs = decoded0.blobs
+        if (!hasPreviewAlready) {
+          const preview = renderPreviewBitmap(
+            decoded0.header,
+            decoded0.blobs,
+            defaultDummy(),
+          )
+          if (preview) {
+            const previewBlobs: PackTypeCBlob[] = [
+              ...orderedBlobs,
+              {
+                kind: 'bitmap',
+                width: preview.width,
+                height: preview.height,
+                rgba: preview.rgba,
+              },
+            ]
+            const previewConfig: ParsedWatchfaceTxt = {
+              ...config,
+              blobCount: config.blobCount + 1,
+              compressions: new Map([
+                ...config.compressions,
+                [config.blobCount, 'RLE_LINE' as const],
+              ]),
+            }
+            finalBin = packTypeC({ config: previewConfig, blobs: previewBlobs })
+            const decoded1 = decodeFile(finalBin)
+            finalConfig = previewConfig
+            finalHeader = decoded1.header
+            finalBlobs = decoded1.blobs
+          }
+        }
         setPacked({
           format: 'typeC',
-          config,
+          config: finalConfig,
           bmpFiles: assets.list,
-          bin,
-          previewHeader: header,
-          previewBlobs: blobs,
+          bin: finalBin,
+          previewHeader: finalHeader,
+          previewBlobs: finalBlobs,
         })
       } else if (jsonEntry) {
         const txt = await jsonEntry.async('string')
