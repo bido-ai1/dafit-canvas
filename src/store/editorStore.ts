@@ -28,6 +28,7 @@ import {
   setAnimationFrames,
   setAllGuidesVisible,
   setGuideVisible,
+  setLayerType,
   setLayerXY,
   type AssetRef,
   type FaceNDigitDependentKind,
@@ -150,6 +151,10 @@ type EditorState = {
   deleteSelectedGuides: () => void
 
   setLayerPosition: (idx: number, x: number, y: number) => void
+  /** Re-classify a Type C layer to a different `type` while keeping
+   *  its AssetSet. Only valid for types compatible with the layer's
+   *  current kind + slot count (see [compatibleTypesForType]). */
+  setLayerType: (idx: number, nextType: number) => void
   reorderLayer: (idx: number, direction: 'up' | 'down') => void
   /** Move a layer to a specific index (post-removal slot). Used by the
    *  drag-to-reorder gesture in LayerList. Selection follows the moved
@@ -555,6 +560,16 @@ export const useEditor = create<EditorState>((set, get) => {
       },
       `move:${idx}`,
     ),
+
+  setLayerType: (idx, nextType) =>
+    mutate((state) => {
+      if (!state.project || state.project.format !== 'typeC') return state
+      try {
+        return { project: setLayerType(state.project, idx, nextType) }
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) }
+      }
+    }),
 
   reorderLayer: (idx, direction) =>
     mutate((state) => {

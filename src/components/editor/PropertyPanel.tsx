@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   AlignCenterHorizontal,
   AlignCenterVertical,
@@ -16,10 +16,17 @@ import {
 } from "lucide-react";
 import { useEditor } from "../../store/editorStore";
 import {
+  compatibleTypesForType,
   computeLayerBbox,
   getLayerAnchor,
   listLayers,
+  TYPEC_INSERTABLE_TYPES,
 } from "../../lib/projectIO";
+import { typeName } from "../../lib/dawft";
+import InsertablePickerList from "./InsertablePickerList";
+import InsertableInfoCard from "./InsertableInfoCard";
+import Popover from "../Popover";
+import { ChevronDown } from "lucide-react";
 import { SCREEN_H, SCREEN_W } from "../../types/face";
 import AssetCard from "./AssetCard";
 import AssetDetailView from "./AssetDetailView";
@@ -673,12 +680,76 @@ function MultiGuideArrangeRow({ guides }: { guides: GuideLine[] }) {
 function TypeCFields({ idx }: { idx: number }) {
   const project = useEditor((s) => s.project);
   const setLayerPosition = useEditor((s) => s.setLayerPosition);
+  const setLayerTypeAction = useEditor((s) => s.setLayerType);
+  const [typePickerOpen, setTypePickerOpen] = useState(false);
+  const typeBtnRef = useRef<HTMLButtonElement>(null);
   if (!project || project.format !== "typeC") return null;
   const layer = project.layers[idx];
   if (!layer) return null;
   const set = project.assetSets.find((s) => s.id === layer.assetSetId);
+  // Types this layer can be re-classified as without rebuilding its
+  // AssetSet (same kind + slot count). Empty for one-of-a-kind layers
+  // like BACKGROUND (no other 240×240 single-blob type exists).
+  const compatibleTypes = compatibleTypesForType(project, layer.type);
+  const currentEntry =
+    TYPEC_INSERTABLE_TYPES.find((t) => t.type === layer.type) ?? null;
+  const currentLabel = typeName(layer.type);
+  const hex = `0x${layer.type.toString(16).padStart(2, "0")}`;
+  const canReclassify = compatibleTypes.length > 0;
   return (
     <>
+      {currentEntry ? (
+        <InsertableInfoCard k={currentEntry} variant="expanded" />
+      ) : (
+        <p className="hint prop-type-unknown">
+          <strong>{currentLabel}</strong> <code>{hex}</code> — no metadata for
+          this type yet.
+        </p>
+      )}
+      <div className="prop-section">
+        <label className="num-field prop-type-field">
+          <span>type</span>
+          <button
+            ref={typeBtnRef}
+            type="button"
+            className="prop-type-button"
+            onClick={() => setTypePickerOpen((v) => !v)}
+            disabled={!canReclassify}
+            aria-haspopup="menu"
+            aria-expanded={typePickerOpen}
+            title={
+              canReclassify
+                ? "Reclassify this layer — same AssetSet, different firmware role."
+                : "No compatible types: this kind & slot count is unique."
+            }
+          >
+            <span className="prop-type-button-label">
+              <span className="prop-type-button-name">{currentLabel}</span>
+              <code>{hex}</code>
+            </span>
+            <ChevronDown size={12} aria-hidden />
+          </button>
+        </label>
+        {typePickerOpen && canReclassify && (
+          <Popover
+            anchorRef={typeBtnRef}
+            onClose={() => setTypePickerOpen(false)}
+            placement="bottom-start"
+            role="menu"
+            ariaLabel="Reclassify layer type"
+            className="insertable-picker-popover insert-menu"
+            matchAnchorWidth
+          >
+            <InsertablePickerList
+              types={compatibleTypes}
+              onPick={(k) => {
+                setTypePickerOpen(false);
+                setLayerTypeAction(idx, k.type);
+              }}
+            />
+          </Popover>
+        )}
+      </div>
       <div className="prop-row">
         <NumField
           label="x"
@@ -1222,10 +1293,13 @@ function PropertyPanel() {
 
         {layer && project && (
           <>
+            <hr className="prop-divider" aria-hidden />
             <h3>Layer</h3>
-            <Tooltip content={layer.name}>
-              <p className="prop-meta">{layer.name}</p>
-            </Tooltip>
+            {project.format === "faceN" && (
+              <Tooltip content={layer.name}>
+                <p className="prop-meta">{layer.name}</p>
+              </Tooltip>
+            )}
             {project.format === "typeC" ? (
               <TypeCFields idx={layer.index} />
             ) : (

@@ -89,7 +89,7 @@ export const kindForType = (type: number): AssetSetKind => {
     type === 0x80 ||
     type === 0x90 ||
     type === 0xa0 ||
-    type === 0xda // BATT_IMG_D — 11-frame battery fill animation
+    type === 0xda // BATT_IMG_D — 11-frame battery fill (corpus-confirmed)
   )
     return 'progbar'
   if (type >= 0xf6 && type <= 0xf8) return 'animation'
@@ -1834,7 +1834,7 @@ const INSERTABLE_META: Record<
   0xda: {
     category: 'battery',
     description:
-      'Battery fill animation — 11 frames from empty (0%) to full (100%).',
+      'Battery fill animation — 11 frames from empty (0%) to full (100%). Frame picked by battery level on the watch.',
   },
   0xd2: {
     category: 'battery',
@@ -2127,8 +2127,8 @@ export const slotLabelForType = (
   if (type === 0x70 || type === 0x80 || type === 0x90 || type === 0xa0) {
     return `${idx * 10}%`
   }
-  // Battery icons: 11 slots → 0..100% in 10% steps; other counts fall
-  // back to raw indices since the level scheme isn't fixed.
+  // BATT_IMG_D: 11-frame battery fill. Default to the percentage scheme
+  // (0%, 10%, …, 100%); fall back to raw idx for non-11 counts.
   if (type === 0xda) {
     if (count === 11) return `${idx * 10}%`
     return String(idx)
@@ -2149,6 +2149,56 @@ export const compatibleSetsForType = (
 ): AssetSet[] => {
   const count = blobCountForType(type, project.animationFrames)
   return project.assetSets.filter((s) => s.count === count)
+}
+
+/** Types that share the same `kind` *and* slot count as the given type
+ *  — i.e. types a layer can be re-classified as without rebuilding the
+ *  underlying AssetSet. The current type is excluded so the dropdown
+ *  caller can pre-pend it as the "current selection" entry.
+ *
+ *  Example: 0x90 KCAL_PROGBAR returns 0x70 STEPS_PROGBAR, 0x80
+ *  HR_PROGBAR, 0xa0 DIST_PROGBAR, 0xda BATT_IMG_D (all 11-slot
+ *  progbar-kind). 0x40 TIME_H1 returns every 10-slot digit set. */
+export const compatibleTypesForType = (
+  project: TypeCProject,
+  type: number,
+): InsertableType[] => {
+  const kind = kindForType(type)
+  const count = blobCountForType(type, project.animationFrames)
+  return TYPEC_INSERTABLE_TYPES.filter(
+    (t) =>
+      t.type !== type &&
+      kindForType(t.type) === kind &&
+      blobCountForType(t.type, project.animationFrames) === count,
+  )
+}
+
+/** Re-classify a layer to a different `type` without touching its
+ *  AssetSet. Caller is expected to have validated compatibility via
+ *  [compatibleTypesForType]; this throws if the slot count would
+ *  change (which would render garbage on the watch). */
+export const setLayerType = (
+  project: TypeCProject,
+  idx: number,
+  nextType: number,
+): TypeCProject => {
+  const layer = project.layers[idx]
+  if (!layer) return project
+  if (layer.type === nextType) return project
+  const oldCount = blobCountForType(layer.type, project.animationFrames)
+  const newCount = blobCountForType(nextType, project.animationFrames)
+  if (oldCount !== newCount) {
+    throw new Error(
+      `Cannot change layer ${idx} from 0x${layer.type
+        .toString(16)
+        .padStart(2, '0')} to 0x${nextType.toString(16).padStart(2, '0')}: ` +
+        `slot count would change ${oldCount} → ${newCount}.`,
+    )
+  }
+  const layers = project.layers.map((l, i) =>
+    i === idx ? { ...l, type: nextType } : l,
+  )
+  return { ...project, layers }
 }
 
 /** Create a standalone AssetSet — no layer references it yet. The caller is

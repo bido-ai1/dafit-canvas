@@ -3988,6 +3988,95 @@
   gap: 8px;
 }
 
+/* Divider between Project and Layer sections of the property panel. */
+.prop-divider {
+  margin: 16px 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* Stand-alone field block for the type selector — single column so the
+ * dropdown's long names ("TIME_H1 (0x40)") don't truncate. */
+.prop-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.prop-type-field {
+  width: 100%;
+}
+
+/* Button that opens the type-reclassify popover. Looks like a select
+ * but rendered as a button so we can mount our shared
+ * InsertablePickerList inside a Popover (consistent with the
+ * Insert layer flow). */
+.prop-type-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface, transparent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+
+  &:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  & code {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-h);
+  }
+}
+
+.prop-type-button-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.prop-type-button-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prop-type-unknown {
+  margin: 0 0 8px;
+}
+
+/* Constrain the info card inside the property panel so it doesn't
+ * stretch its description across an awkward width. */
+.editor-props .insertable-info-card-expanded {
+  margin: 4px 0 8px;
+}
+
 .prop-color {
   display: flex;
   gap: 6px;

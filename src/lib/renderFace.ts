@@ -250,7 +250,7 @@ const drawElement = (
     case 0x80: drawProgBar(ctx, lookup, (dummy.hr / 200) * 100, fd); return
     case 0x90: drawProgBar(ctx, lookup, (dummy.kcal / 500) * 100, fd); return
     case 0xa0: drawProgBar(ctx, lookup, dummy.distance, fd); return // 10 km goal
-    case 0xda: drawProgBar(ctx, lookup, dummy.battery, fd); return // BATT_IMG_D
+    case 0xda: drawProgBar(ctx, lookup, dummy.battery, fd); return // BATT_IMG_D — 11-frame battery fill
 
     // ----- background strips (Type A holdover, occasionally seen on Type C) -----
     case 0x00:

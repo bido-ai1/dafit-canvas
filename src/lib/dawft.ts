@@ -729,11 +729,9 @@ export const packTypeC = ({ config, blobs }: PackTypeCInput): Uint8Array => {
 
   // Compute offsets table (relative to end of 1900-byte header).
   const offsets: number[] = []
-  const sizes: number[] = []
   let running = 0
   for (let i = 0; i < blobCount; i++) {
     offsets.push(running)
-    sizes.push(compressedBlobs[i].byteLength)
     running += compressedBlobs[i].byteLength
   }
 
@@ -767,11 +765,14 @@ export const packTypeC = ({ config, blobs }: PackTypeCInput): Uint8Array => {
   for (let i = 0; i < 250; i++) {
     if (i < offsets.length) view.setUint32(400 + i * 4, offsets[i], true)
   }
-  // sizes[250] at offset 1400, u16 each
-  for (let i = 0; i < 250; i++) {
-    if (i < sizes.length) view.setUint16(1400 + i * 2, sizes[i], true)
-  }
-  // Type C convention: sizes[0] holds the animation frame count
+  // sizes[250] at offset 1400, u16 each. The corpus convention (verified
+  // across all 387 corpus faces) is that this table is *not* per-blob
+  // sizes — the firmware uses `offsets[]` exclusively for blob layout.
+  // Slot 0 is repurposed as the animation frame count, every other
+  // slot is left at zero. Writing real per-blob sizes here makes the
+  // firmware misread the animation count and break unrelated rendering
+  // (e.g. BATT_IMG_D collapsing to frame 0 because `sizes[0]` ends up
+  // huge and the frame-index math overflows).
   if (config.animationFrames > 0) {
     view.setUint16(1400, config.animationFrames, true)
   }
