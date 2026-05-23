@@ -113,7 +113,7 @@ function SlotRow({
   const onPick = async () => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.bmp,image/bmp'
+    input.accept = '.bmp,.png,.jpg,.jpeg,.gif,.webp,.avif,image/bmp,image/png,image/jpeg,image/gif,image/webp,image/avif'
     input.onchange = async () => {
       const file = input.files?.[0]
       if (!file) return
@@ -266,7 +266,7 @@ function AssetDetailView({ setId, hasLayerContext, onClose }: Props) {
   const onBatchImport = async () => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.bmp,image/bmp'
+    input.accept = '.bmp,.png,.jpg,.jpeg,.gif,.webp,.avif,image/bmp,image/png,image/jpeg,image/gif,image/webp,image/avif'
     input.multiple = true
     input.onchange = async () => {
       const files = Array.from(input.files ?? [])

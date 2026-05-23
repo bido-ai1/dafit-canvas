@@ -3214,13 +3214,58 @@
 .cursor-eye .pixel-canvas-image {
   cursor: help;
 }
+.cursor-select .pixel-canvas-image {
+  cursor: crosshair;
+}
+
+.pixel-crop-rect {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  border: 1px dashed var(--accent, #5ac8fa);
+  /* Two layered shadows: a tight ring inside for contrast against any
+   * background and a wide dim outside to grey-out the discarded area. */
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.7),
+    0 0 0 9999px rgba(0, 0, 0, 0.35);
+}
 
 .pixel-canvas-footer {
   flex: 0 0 auto;
-  display: flex;
-  justify-content: center;
-  padding: 8px;
+  display: grid;
+  /* Three columns: empty / crop-bar (centered) / zoom (right). When no
+   * selection is active the crop-bar column collapses and the zoom
+   * stays anchored on the right — predictable layout either way. */
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 8px 12px;
   border-top: 1px solid var(--border);
+}
+
+.pixel-crop-bar {
+  grid-column: 2;
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  /* `.counter` has a global `margin-bottom: 24px` for in-flow page
+   * buttons — drop it here so the bar centers cleanly in the footer
+   * grid (same trick the animation controls use). */
+  .counter {
+    margin-bottom: 0;
+  }
+}
+
+.pixel-crop-dims {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-h);
+}
+
+.pixel-canvas-footer .pixel-zoom {
+  grid-column: 3;
+  justify-self: end;
 }
 
 .pixel-zoom {
@@ -3320,6 +3365,260 @@
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
+}
+
+.pixel-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.pixel-filters-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-h);
+}
+
+.pixel-filters-scope {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-h);
+  opacity: 0.7;
+}
+
+.pixel-filters-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.pixel-filter-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: center;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+
+  &:hover:not(:disabled) {
+    border-color: var(--accent);
+    background: var(--accent-bg);
+    color: var(--accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  &.primary {
+    background: var(--accent-bg);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+}
+
+/* Channel swap visualisation — three coloured cells in the destination
+ * order, showing which input channel feeds each output position. */
+.pixel-swaps {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+}
+
+.pixel-swap-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+
+  &:hover {
+    border-color: var(--accent);
+    background: var(--accent-bg);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+.pixel-swap-bar {
+  display: inline-flex;
+  gap: 1px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.pixel-swap-cell {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
+
+  &.ch-0 {
+    background: #d33b30;
+  }
+  &.ch-1 {
+    background: #2aa84a;
+  }
+  &.ch-2 {
+    background: #2c7be5;
+  }
+}
+
+.pixel-swap-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text);
+}
+
+/* Per-channel offset sliders. Track has the channel's hue, thumb is
+ * neutral so it stands out against the coloured bar. */
+.pixel-channel-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pixel-channel-row {
+  display: grid;
+  grid-template-columns: 16px 1fr 40px;
+  align-items: center;
+  gap: 8px;
+}
+
+.pixel-channel-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+
+  .ch-0 & {
+    color: #d33b30;
+  }
+  .ch-1 & {
+    color: #2aa84a;
+  }
+  .ch-2 & {
+    color: #2c7be5;
+  }
+}
+
+.pixel-channel-row.ch-0 .pixel-channel-label {
+  color: #d33b30;
+}
+.pixel-channel-row.ch-1 .pixel-channel-label {
+  color: #2aa84a;
+}
+.pixel-channel-row.ch-2 .pixel-channel-label {
+  color: #2c7be5;
+}
+
+.pixel-channel-slider {
+  width: 100%;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+
+  &::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+  }
+  &::-moz-range-track {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+  }
+  &::-webkit-slider-thumb {
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text);
+    border: 2px solid var(--bg);
+    margin-top: -4px;
+    cursor: grab;
+  }
+  &::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text);
+    border: 2px solid var(--bg);
+    cursor: grab;
+  }
+}
+
+.pixel-channel-row.ch-0 .pixel-channel-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    rgba(211, 59, 48, 0.15),
+    rgba(211, 59, 48, 0.55)
+  );
+}
+.pixel-channel-row.ch-1 .pixel-channel-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    rgba(42, 168, 74, 0.15),
+    rgba(42, 168, 74, 0.55)
+  );
+}
+.pixel-channel-row.ch-2 .pixel-channel-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    rgba(44, 123, 229, 0.15),
+    rgba(44, 123, 229, 0.55)
+  );
+}
+
+.pixel-channel-value {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-h);
+  text-align: right;
+}
+
+.pixel-channel-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: 4px;
 }
 
 .pixel-editor-foot {

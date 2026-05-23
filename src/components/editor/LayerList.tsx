@@ -531,7 +531,7 @@ function LayerList() {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".bmp,image/bmp"
+        accept=".bmp,.png,.jpg,.jpeg,.gif,.webp,.avif,image/bmp,image/png,image/jpeg,image/gif,image/webp,image/avif"
         hidden
         onChange={onFilesChosen}
       />

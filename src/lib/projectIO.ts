@@ -1262,10 +1262,42 @@ export const listLayerAssets = (
 
 // ---------- BMP file → DecodedBitmap ----------
 
+const isBmpFile = (file: File): boolean => {
+  if (file.type === 'image/bmp' || file.type === 'image/x-bmp') return true
+  return /\.bmp$/i.test(file.name)
+}
+
+/** Decode any browser-supported image (PNG, JPEG, GIF, WebP, AVIF, …) to
+ *  RGBA8888. Non-BMP formats go through `createImageBitmap` + canvas;
+ *  the canvas is pre-filled with opaque black so any alpha in the source
+ *  flattens against black via source-over. That matches the watch's
+ *  rendering: RGB565 has no alpha, and the encoder
+ *  ([encodeRgb565Raw](src/lib/dawft.ts:665)) drops the alpha byte
+ *  outright — so a transparent PNG pixel would otherwise become
+ *  `(0,0,0, *)` and the user's preview wouldn't match the final BMP.
+ *  Output rgba always has alpha=255. BMPs still use the byte-accurate
+ *  decoder so RGB565 round-trips don't drift through canvas re-encoding. */
 export const decodeBmpFile = async (file: File): Promise<DecodedBitmap> => {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  const bmp = decodeBmp(bytes)
-  return { width: bmp.width, height: bmp.height, rgba: bmp.rgba }
+  if (isBmpFile(file)) {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const bmp = decodeBmp(bytes)
+    return { width: bmp.width, height: bmp.height, rgba: bmp.rgba }
+  }
+  const bitmap = await createImageBitmap(file)
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('2D canvas unavailable')
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, bitmap.width, bitmap.height)
+    ctx.drawImage(bitmap, 0, 0)
+    const img = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
+    return { width: bitmap.width, height: bitmap.height, rgba: img.data }
+  } finally {
+    bitmap.close()
+  }
 }
 
 // ---------- replace asset ----------

@@ -102,7 +102,7 @@ function InsertLayerModal({ k, onClose, onOpenFontTarget }: Props) {
     )
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.bmp,image/bmp'
+    input.accept = '.bmp,.png,.jpg,.jpeg,.gif,.webp,.avif,image/bmp,image/png,image/jpeg,image/gif,image/webp,image/avif'
     input.multiple = expected > 1
     input.onchange = async () => {
       const files = Array.from(input.files ?? [])
