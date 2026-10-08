@@ -24,11 +24,28 @@ const BATTERY_CHAR = 0x2a19
 const CHUNK_SIZE = 244
 const SLOT_GALLERY = 0x74 // file slot 116 = 103 + 13 (Watch Gallery)
 
+// Robustness tuning for the upload flow (see issue #1 — BLE upload hang).
+// Acceptance criterion: upload never hangs — it either succeeds or fails
+// with a clear message within ~15s of the last progress.
+export const CHUNK_TIMEOUT_MS = 10_000
+export const MAX_CHUNK_RETRIES = 3
+// Pacing between consecutive chunk writes. Android Chrome's BLE stack drops
+// notifications when pushed too fast (DaFup uses 300ms; dawfu relies on
+// per-chunk ACKs instead). Small delay keeps both models stable.
+export const CHUNK_PACING_MS = 60
+
 const REQUIRED_MANUFACTURER = 'MOYOUNG-V2'
 
 const PREP_HEADER = [0xfe, 0xea, 0x20, 0x09, SLOT_GALLERY] as const
 const READY_HEADER = [0xfe, 0xea, 0x20, 0x07, SLOT_GALLERY] as const
 const APPLY_FACE_GALLERY = [0xfe, 0xea, 0x20, 0x06, 0x19, 0x0d] as const
+// Extra transfer-config step observed in VicGuy/DaFup + jphein/moyoung-watch
+// (proven on MOY-ERJ3 2.0.7): `fe ea 20 0a b4 11 30 04 00 00`.
+// dawfu (the reference for this file) does NOT send it. Kept here as an
+// opt-in for Icon Lite MOY-8Y82 testing — see UploadOptions below.
+const FACE_SET_XFER = [
+  0xfe, 0xea, 0x20, 0x0a, 0xb4, 0x11, 0x30, 0x04, 0x00, 0x00,
+] as const
 
 export type DeviceInfo = {
   name: string
@@ -61,12 +78,29 @@ const headerEquals = (a: Uint8Array, header: readonly number[]): boolean => {
   return true
 }
 
+export type UploadOptions = {
+  /** AbortSignal to cancel an in-flight upload (Cancel button). */
+  signal?: AbortSignal
+  /** Per-chunk ACK timeout in ms. Defaults to CHUNK_TIMEOUT_MS. */
+  chunkTimeoutMs?: number
+  /** How many times to re-send a chunk after a timeout. Defaults to MAX_CHUNK_RETRIES. */
+  maxRetries?: number
+  /**
+   * Opt-in: send the DaFup `FACE_SET_XFER` step
+   * (`fe ea 20 0a b4 11 30 04 00 00`) between finish and apply.
+   * Default false to preserve the proven dawfu sequence; enable when
+   * testing Icon Lite MOY-8Y82 if apply alone does nothing.
+   */
+  sendTransferConfig?: boolean
+}
+
 export class MoyoungWatch {
   private device: BluetoothDevice | null = null
   private send: BluetoothRemoteGATTCharacteristic | null = null
   private sendFile: BluetoothRemoteGATTCharacteristic | null = null
   private notify: BluetoothRemoteGATTCharacteristic | null = null
   private onDisconnectCb: (() => void) | null = null
+  private pendingUploadReject: ((err: Error) => void) | null = null
 
   async connect(): Promise<DeviceInfo> {
     if (!isWebBluetoothSupported()) {
@@ -137,6 +171,7 @@ export class MoyoungWatch {
   async uploadWatchFace(
     file: ArrayBuffer,
     onProgress?: (p: UploadProgress) => void,
+    options: UploadOptions = {},
   ): Promise<UploadResult> {
     const send = this.send
     const sendFile = this.sendFile
@@ -149,16 +184,37 @@ export class MoyoungWatch {
     if (totalBytes === 0) throw new Error('File is empty.')
     const totalChunks = Math.ceil(totalBytes / CHUNK_SIZE)
     const fileBytes = new Uint8Array(file)
+    const chunkTimeoutMs = options.chunkTimeoutMs ?? CHUNK_TIMEOUT_MS
+    const maxRetries = options.maxRetries ?? MAX_CHUNK_RETRIES
+    const signal = options.signal
+
+    if (signal?.aborted) throw new Error('Upload cancelled.')
 
     await notify.startNotifications()
 
     return new Promise<UploadResult>((resolve, reject) => {
       let expectedChunk = 0
       let settled = false
+      let retriesForChunk = 0
+      let chunkTimer: ReturnType<typeof setTimeout> | null = null
+      // Strict serialization: only one GATT write in flight at a time.
+      // Android Chrome fails concurrent GATT ops with
+      // "GATT operation failed for unknown reason".
+      let writeChain: Promise<void> = Promise.resolve()
+
+      const clearTimer = () => {
+        if (chunkTimer !== null) {
+          clearTimeout(chunkTimer)
+          chunkTimer = null
+        }
+      }
 
       const cleanup = () => {
+        clearTimer()
+        this.pendingUploadReject = null
         notify.removeEventListener('characteristicvaluechanged', onValue)
         notify.stopNotifications().catch(() => {})
+        signal?.removeEventListener('abort', onAbort)
       }
 
       const fail = (err: unknown) => {
@@ -168,11 +224,72 @@ export class MoyoungWatch {
         reject(err instanceof Error ? err : new Error(String(err)))
       }
 
+      // Exposed to handleDisconnect so a mid-upload GATT drop rejects
+      // instead of hanging forever (issue #1, hypothesis 7).
+      this.pendingUploadReject = (err: Error) => fail(err)
+
       const succeed = (result: UploadResult) => {
         if (settled) return
         settled = true
         cleanup()
         resolve(result)
+      }
+
+      const onAbort = () => {
+        fail(new Error('Upload cancelled.'))
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
+
+      const queueWrite = (task: () => Promise<void>): void => {
+        writeChain = writeChain.then(task).catch(fail)
+      }
+
+      const armTimeout = (chunkNum: number) => {
+        clearTimer()
+        chunkTimer = setTimeout(() => {
+          if (settled) return
+          if (retriesForChunk < maxRetries) {
+            retriesForChunk += 1
+            console.warn(
+              `[moyoung] chunk ${chunkNum} ACK timeout (${chunkTimeoutMs}ms), retry ${retriesForChunk}/${maxRetries}`,
+            )
+            sendChunk(chunkNum)
+          } else {
+            fail(
+              new Error(
+                `Watch stopped responding at chunk ${chunkNum}/${totalChunks} ` +
+                  `(${Math.round((chunkNum / totalChunks) * 100)}%). ` +
+                  `Try a smaller file, move closer to the watch, disconnect the DaFit app, then retry.`,
+              ),
+            )
+          }
+        }, chunkTimeoutMs)
+      }
+
+      const sendChunk = (chunkNum: number) => {
+        const start = chunkNum * CHUNK_SIZE
+        if (start >= totalBytes) {
+          fail(new Error(`Watch requested chunk ${chunkNum} past end of file`))
+          return
+        }
+        const end = Math.min(start + CHUNK_SIZE, totalBytes)
+        const chunk = fileBytes.subarray(start, end)
+        armTimeout(chunkNum)
+        queueWrite(async () => {
+          if (settled) return
+          // Small pacing keeps Android's BLE stack from dropping the notify.
+          if (CHUNK_PACING_MS > 0) {
+            await new Promise<void>((r) => setTimeout(r, CHUNK_PACING_MS))
+          }
+          if (settled) return
+          await sendFile.writeValueWithoutResponse(chunk)
+          onProgress?.({
+            bytesSent: end,
+            totalBytes,
+            chunkIndex: chunkNum + 1,
+            totalChunks,
+          })
+        })
       }
 
       const onValue = (event: Event) => {
@@ -187,13 +304,19 @@ export class MoyoungWatch {
 
         // Watch finished receiving the file → checksum at bytes 5..8 (BE u32).
         if (headerEquals(data, PREP_HEADER) && data.length >= 9) {
+          clearTimer()
           const checksum =
             ((data[5] << 24) | (data[6] << 16) | (data[7] << 8) | data[8]) >>> 0
-          ;(async () => {
+          queueWrite(async () => {
             try {
               await send.writeValueWithoutResponse(
                 new Uint8Array([...PREP_HEADER, 0x00, 0x00, 0x00, 0x00]),
               )
+              if (options.sendTransferConfig) {
+                await send.writeValueWithoutResponse(
+                  new Uint8Array([...FACE_SET_XFER]),
+                )
+              }
               await send.writeValueWithoutResponse(
                 new Uint8Array(APPLY_FACE_GALLERY),
               )
@@ -201,39 +324,24 @@ export class MoyoungWatch {
             } catch (err) {
               fail(err)
             }
-          })()
+          })
           return
         }
 
         // Watch ready for chunk N → bytes 5..6 carry chunk index (BE u16).
         if (headerEquals(data, READY_HEADER) && data.length >= 7) {
+          clearTimer()
           const chunkNum = (data[5] << 8) | data[6]
           if (chunkNum !== expectedChunk) {
             console.warn(
               `[moyoung] expected chunk ${expectedChunk}, watch asked for ${chunkNum}`,
             )
           }
+          // Watch re-asked for the same chunk → reset retry budget only
+          // when it advances; duplicate requests don't consume retries.
+          if (chunkNum !== expectedChunk - 1) retriesForChunk = 0
           expectedChunk = chunkNum + 1
-          const start = chunkNum * CHUNK_SIZE
-          if (start >= totalBytes) {
-            fail(new Error(`Watch requested chunk ${chunkNum} past end of file`))
-            return
-          }
-          const end = Math.min(start + CHUNK_SIZE, totalBytes)
-          const chunk = fileBytes.subarray(start, end)
-          ;(async () => {
-            try {
-              await sendFile.writeValueWithoutResponse(chunk)
-              onProgress?.({
-                bytesSent: end,
-                totalBytes,
-                chunkIndex: chunkNum + 1,
-                totalChunks,
-              })
-            } catch (err) {
-              fail(err)
-            }
-          })()
+          sendChunk(chunkNum)
           return
         }
 
@@ -249,7 +357,11 @@ export class MoyoungWatch {
       const prep = new Uint8Array(9)
       prep.set(PREP_HEADER)
       new DataView(prep.buffer).setUint32(5, totalBytes, false)
-      send.writeValueWithoutResponse(prep).catch(fail)
+      armTimeout(0)
+      queueWrite(async () => {
+        if (settled) return
+        await send.writeValueWithoutResponse(prep)
+      })
     })
   }
 
@@ -312,6 +424,10 @@ export class MoyoungWatch {
     this.send = null
     this.sendFile = null
     this.notify = null
+    this.pendingUploadReject?.(
+      new Error('Disconnected during upload. Reconnect and retry.'),
+    )
+    this.pendingUploadReject = null
     if (device) {
       device.removeEventListener('gattserverdisconnected', this.handleDisconnect)
       if (device.gatt?.connected) device.gatt.disconnect()
@@ -322,6 +438,14 @@ export class MoyoungWatch {
     this.send = null
     this.sendFile = null
     this.notify = null
+    // Reject a hung upload immediately instead of leaving the Promise
+    // pending forever (issue #1, hypothesis 7).
+    this.pendingUploadReject?.(
+      new Error(
+        'Watch disconnected mid-upload. Move closer, ensure the DaFit app is closed, then reconnect and retry.',
+      ),
+    )
+    this.pendingUploadReject = null
     this.onDisconnectCb?.()
   }
 }

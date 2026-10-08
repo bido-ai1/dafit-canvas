@@ -51,6 +51,7 @@ const formatBytes = (n: number): string => {
 function UploadWatchFace() {
   const supported = isWebBluetoothSupported()
   const watchRef = useRef<MoyoungWatch | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
   const [device, setDevice] = useState<DeviceInfo | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [status, setStatus] = useState<Status>('idle')
@@ -59,6 +60,7 @@ function UploadWatchFace() {
   const [error, setError] = useState<string | null>(null)
   const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null)
   const [parseError, setParseError] = useState<string | null>(null)
+  const [sendTransferConfig, setSendTransferConfig] = useState(false)
 
   // Static dummy state for the preview (current local time). Live controls
   // belong on /dump; here we just need a recognizable rendering for visual
@@ -67,6 +69,7 @@ function UploadWatchFace() {
 
   useEffect(() => {
     return () => {
+      abortRef.current?.abort()
       watchRef.current?.disconnect().catch(() => {})
       watchRef.current = null
     }
@@ -81,7 +84,17 @@ function UploadWatchFace() {
       watch.onDisconnect(() => {
         watchRef.current = null
         setDevice(null)
-        setStatus('idle')
+        // If we were mid-upload the BLE layer already rejected with a
+        // clear message — surface it instead of silently going idle.
+        setStatus((prev) => {
+          if (prev === 'uploading') {
+            setError(
+              'Watch disconnected mid-upload. Note the last chunk below, move closer, close the DaFit app, then retry.',
+            )
+            return 'error'
+          }
+          return 'idle'
+        })
       })
       const info = await watch.connect()
       watchRef.current = watch
@@ -100,12 +113,18 @@ function UploadWatchFace() {
   }
 
   const handleDisconnect = async () => {
+    abortRef.current?.abort()
+    abortRef.current = null
     await watchRef.current?.disconnect()
     watchRef.current = null
     setDevice(null)
     setStatus('idle')
     setProgress(null)
     setResult(null)
+  }
+
+  const handleCancel = () => {
+    abortRef.current?.abort()
   }
 
   const handleUpload = async () => {
@@ -121,14 +140,32 @@ function UploadWatchFace() {
     setResult(null)
     setProgress(null)
     setStatus('uploading')
+    const controller = new AbortController()
+    abortRef.current = controller
     try {
       const buffer = await file.arrayBuffer()
-      const res = await watch.uploadWatchFace(buffer, setProgress)
+      const res = await watch.uploadWatchFace(buffer, setProgress, {
+        signal: controller.signal,
+        sendTransferConfig,
+      })
       setResult(res)
       setStatus('done')
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      const message = err instanceof Error ? err.message : String(err)
+      // Log where it stopped so issue #1 task C/E can record it:
+      // model, firmware (from device card), file size, last chunk.
+      console.warn('[upload] failed:', {
+        message,
+        fileName: file.name,
+        fileSize: file.size,
+        lastChunk: progress,
+        deviceName: device?.name,
+        deviceSoftware: device?.software,
+      })
+      setError(message)
       setStatus('error')
+    } finally {
+      abortRef.current = null
     }
   }
 
@@ -320,15 +357,47 @@ function UploadWatchFace() {
 
       <div className="upload-section">
         <h2>3. Upload</h2>
-        <button
-          type="button"
-          className="counter"
-          onClick={handleUpload}
-          disabled={!connected || !parsedFile || uploading}
-        >
-          <Upload size={16} aria-hidden />
-          {uploading ? 'Uploading…' : 'Send to watch'}
-        </button>
+        <div className="banner banner-warn">
+          <AlertTriangle size={18} aria-hidden />
+          <div>
+            <strong>Close the DaFit app first.</strong> The watch accepts only
+            one BLE connection — if your phone is still connected the upload
+            will hang. Turn off phone Bluetooth, keep the watch close, and
+            don&apos;t leave this tab during upload.
+          </div>
+        </div>
+        <label className="hint" style={{ display: 'block', margin: '8px 0' }}>
+          <input
+            type="checkbox"
+            checked={sendTransferConfig}
+            onChange={(e) => setSendTransferConfig(e.target.checked)}
+            disabled={uploading}
+          />{' '}
+          Send DaFup transfer-config step (
+          <code>fe ea 20 0a b4 …</code>) — try this ON if Icon Lite ignores the
+          apply command
+        </label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            className="counter"
+            onClick={handleUpload}
+            disabled={!connected || !parsedFile || uploading}
+          >
+            <Upload size={16} aria-hidden />
+            {uploading ? 'Uploading…' : 'Send to watch'}
+          </button>
+          {uploading && (
+            <button
+              type="button"
+              className="counter ghost"
+              onClick={handleCancel}
+            >
+              <BluetoothOff size={16} aria-hidden />
+              Cancel
+            </button>
+          )}
+        </div>
 
         {(progress || status === 'done') && (
           <div className="upload-progress-watch" aria-live="polite">
