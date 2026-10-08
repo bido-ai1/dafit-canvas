@@ -249,15 +249,32 @@ function UploadDialog({ onClose, bytes, filename }: Props) {
             )}
 
             {status === 'done' && result && (
-              <div className="banner banner-ok">
+              <div
+                className={
+                  result.endedEarly || result.checksum === 0xffff0000
+                    ? 'banner banner-warn'
+                    : 'banner banner-ok'
+                }
+              >
                 <CheckCircle2 size={16} aria-hidden />
                 <div>
                   <strong>Upload complete.</strong>{' '}
-                  {formatBytes(result.totalBytes)} sent · checksum{' '}
+                  {formatBytes(result.totalBytes)} sent · reply{' '}
                   <code>
                     0x{result.checksum.toString(16).padStart(8, '0')}
-                  </code>
-                  . Watch switched to gallery face.
+                  </code>{' '}
+                  (raw <code>{result.completionHex}</code>) · chunks{' '}
+                  {result.chunksAcked}/{result.totalChunks}. Watch switched to
+                  gallery face.
+                  {result.endedEarly && (
+                    <>
+                      <br />
+                      <strong>
+                        Warning: watch ended early — file likely rejected.
+                      </strong>{' '}
+                      Check the watch and report what changed, if anything.
+                    </>
+                  )}
                 </div>
               </div>
             )}

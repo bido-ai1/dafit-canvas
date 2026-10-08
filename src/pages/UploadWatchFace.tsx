@@ -415,13 +415,47 @@ function UploadWatchFace() {
         )}
 
         {status === 'done' && result && (
-          <div className="banner banner-ok">
+          <div
+            className={
+              result.endedEarly ||
+              result.checksum === 0xffff0000 ||
+              result.chunksAcked < result.totalChunks
+                ? 'banner banner-warn'
+                : 'banner banner-ok'
+            }
+          >
             <CheckCircle2 size={18} aria-hidden />
             <div>
               <strong>Upload complete.</strong> {formatBytes(result.totalBytes)}{' '}
-              sent. Watch checksum:{' '}
-              <code>0x{result.checksum.toString(16).padStart(8, '0')}</code>.
-              Switched watch to gallery face (slot 13).
+              sent. Watch reply:{' '}
+              <code>0x{result.checksum.toString(16).padStart(8, '0')}</code>{' '}
+              (raw <code>{result.completionHex}</code>). Chunks acked:{' '}
+              {result.chunksAcked}/{result.totalChunks}. Switched watch to
+              gallery face (slot 13).
+              {result.endedEarly && (
+                <>
+                  <br />
+                  <strong>
+                    Warning: watch ended early after chunk{' '}
+                    {result.chunksAcked}/{result.totalChunks}.
+                  </strong>{' '}
+                  The file was likely rejected (wrong format/fileID for this
+                  model?) — check on the watch whether anything changed, and
+                  report file name + source + Type C header (faceNumber,
+                  dataCount, blobCount above).
+                </>
+              )}
+              {result.checksum === 0xffff0000 && (
+                <>
+                  <br />
+                  <strong>
+                    Note: 0xffff0000 looks like a status code, not a real
+                    checksum.
+                  </strong>{' '}
+                  dawfu never verifies this value either. If no new face
+                  appears, try the transfer-config checkbox ON and compare.
+                </>
+              )}
             </div>
           </div>
         )}

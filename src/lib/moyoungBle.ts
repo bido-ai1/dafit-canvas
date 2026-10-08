@@ -64,6 +64,17 @@ export type UploadProgress = {
 export type UploadResult = {
   checksum: number
   totalBytes: number
+  /** Raw completion reply from the watch as lowercase hex (e.g. `feea200974ffff0000`). */
+  completionHex: string
+  /** Highest chunk index the watch explicitly requested (1-based count). */
+  chunksAcked: number
+  totalChunks: number
+  /**
+   * True when the watch sent completion before requesting every chunk
+   * (e.g. Icon Lite replying after chunk 1/344). Transfer-wise the watch
+   * said "done", but the file was likely rejected — surface as warning.
+   */
+  endedEarly: boolean
 }
 
 export const isWebBluetoothSupported = (): boolean =>
@@ -303,10 +314,25 @@ export class MoyoungWatch {
         )
 
         // Watch finished receiving the file → checksum at bytes 5..8 (BE u32).
+        // NOTE: on some firmwares (e.g. Icon Lite MOY-8Y82 2.0.0 replying
+        // `...74 ff ff 00 00` = 0xffff0000) these bytes look like a status
+        // code, not a real checksum. dawfu never verifies it either — it
+        // only prints it. So we report the raw hex + chunksAcked and let
+        // the UI flag `endedEarly` instead of trusting the value.
         if (headerEquals(data, PREP_HEADER) && data.length >= 9) {
           clearTimer()
           const checksum =
             ((data[5] << 24) | (data[6] << 16) | (data[7] << 8) | data[8]) >>> 0
+          const completionHex = Array.from(data, (b) =>
+            b.toString(16).padStart(2, '0'),
+          ).join('')
+          const chunksAcked = expectedChunk
+          const endedEarly = chunksAcked < totalChunks
+          console.warn('[moyoung] completion reply:', completionHex, {
+            chunksAcked,
+            totalChunks,
+            endedEarly,
+          })
           queueWrite(async () => {
             try {
               await send.writeValueWithoutResponse(
@@ -320,7 +346,14 @@ export class MoyoungWatch {
               await send.writeValueWithoutResponse(
                 new Uint8Array(APPLY_FACE_GALLERY),
               )
-              succeed({ checksum, totalBytes })
+              succeed({
+                checksum,
+                totalBytes,
+                completionHex,
+                chunksAcked,
+                totalChunks,
+                endedEarly,
+              })
             } catch (err) {
               fail(err)
             }
