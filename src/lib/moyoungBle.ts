@@ -103,6 +103,19 @@ export type UploadOptions = {
    * testing Icon Lite MOY-8Y82 if apply alone does nothing.
    */
   sendTransferConfig?: boolean
+  /**
+   * DaFup blast mode (proven on Icon Lite MOY-8Y82 2.0.0, issue #1):
+   * send all chunks back-to-back with pacing instead of waiting for a
+   * per-chunk READY handshake (the dawfu model this firmware rejects
+   * after chunk 1). Default false to preserve legacy behaviour.
+   */
+  blast?: boolean
+  /** Chunk size for blast mode. Default 512 (DaFup + negotiated MTU 517). */
+  blastChunkSize?: number
+  /** Pacing between blast chunks in ms. Default 300 (DaFup). */
+  blastPacingMs?: number
+  /** Display-list index for the 0x19 apply command. Default 6 (DaFup). */
+  faceIdx?: number
 }
 
 export class MoyoungWatch {
@@ -204,6 +217,107 @@ export class MoyoungWatch {
     await notify.startNotifications()
 
     return new Promise<UploadResult>((resolve, reject) => {
+      // ---- DaFup blast mode: prep, 500ms, all chunks with pacing, quick
+      // listen, then finish + optional xfer + apply. Proven on Icon Lite
+      // MOY-8Y82 2.0.0 where the per-chunk READY handshake is rejected
+      // after chunk 1 (native APK test, issue #1).
+      if (options.blast) {
+        const bChunk = options.blastChunkSize ?? 512
+        const bPacing = options.blastPacingMs ?? 300
+        const bFaceIdx = options.faceIdx ?? 6
+        const bTotal = Math.ceil(totalBytes / bChunk)
+        // Boxed so closure writes stay visible (TS narrows plain let to never).
+        const markerBox: { hex: string | null } = { hex: null }
+        const bListener = (event: Event) => {
+          const target = event.target as BluetoothRemoteGATTCharacteristic
+          const view = target.value
+          if (!view) return
+          const data = new Uint8Array(
+            view.buffer,
+            view.byteOffset,
+            view.byteLength,
+          )
+          console.warn(
+            '[moyoung] blast RX:',
+            Array.from(data, (b) => b.toString(16).padStart(2, '0')).join(''),
+          )
+          if (
+            data.length >= 6 &&
+            data[0] === 0xfe &&
+            data[1] === 0xea &&
+            data[4] === SLOT_GALLERY &&
+            data[5] === 0xff
+          ) {
+            markerBox.hex = Array.from(data, (b) =>
+              b.toString(16).padStart(2, '0'),
+            ).join('')
+          }
+        }
+        notify.addEventListener('characteristicvaluechanged', bListener)
+        if (signal?.aborted) {
+          notify.removeEventListener('characteristicvaluechanged', bListener)
+          reject(new Error('Upload cancelled.'))
+          return
+        }
+        void (async () => {
+          try {
+            await notify.startNotifications()
+            const prep = new Uint8Array(9)
+            prep.set(PREP_HEADER)
+            new DataView(prep.buffer).setUint32(5, totalBytes, false)
+            await send.writeValueWithoutResponse(prep)
+            await new Promise<void>((r) => setTimeout(r, 500))
+            for (let i = 0; i < bTotal; i++) {
+              if (signal?.aborted) throw new Error('Upload cancelled.')
+              const start = i * bChunk
+              const end = Math.min(start + bChunk, totalBytes)
+              await sendFile.writeValueWithoutResponse(
+                fileBytes.subarray(start, end),
+              )
+              onProgress?.({
+                bytesSent: end,
+                totalBytes,
+                chunkIndex: i + 1,
+                totalChunks: bTotal,
+              })
+              if (bPacing > 0) {
+                await new Promise<void>((r) => setTimeout(r, bPacing))
+              }
+            }
+            // Quick listen: the link drops fast after the last chunk.
+            await new Promise<void>((r) => setTimeout(r, 3000))
+            const finish = new Uint8Array(9)
+            finish.set(PREP_HEADER)
+            await send.writeValueWithoutResponse(finish)
+            if (options.sendTransferConfig) {
+              await send.writeValueWithoutResponse(
+                new Uint8Array([...FACE_SET_XFER]),
+              )
+            }
+            await send.writeValueWithoutResponse(
+              new Uint8Array([0xfe, 0xea, 0x20, 0x06, 0x19, bFaceIdx & 0xff]),
+            )
+            const hex: string = markerBox.hex ?? ''
+            const checksum = markerBox.hex
+              ? (parseInt(markerBox.hex.slice(10, 18), 16) >>> 0)
+              : 0
+            notify.removeEventListener('characteristicvaluechanged', bListener)
+            resolve({
+              checksum,
+              totalBytes,
+              completionHex: hex,
+              chunksAcked: bTotal,
+              totalChunks: bTotal,
+              endedEarly: false,
+            })
+          } catch (err) {
+            notify.removeEventListener('characteristicvaluechanged', bListener)
+            reject(err instanceof Error ? err : new Error(String(err)))
+          }
+        })()
+        return
+      }
+
       let expectedChunk = 0
       let settled = false
       let retriesForChunk = 0

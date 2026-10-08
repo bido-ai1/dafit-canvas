@@ -61,6 +61,7 @@ function UploadWatchFace() {
   const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null)
   const [parseError, setParseError] = useState<string | null>(null)
   const [sendTransferConfig, setSendTransferConfig] = useState(false)
+  const [blast, setBlast] = useState(true)
 
   // Static dummy state for the preview (current local time). Live controls
   // belong on /dump; here we just need a recognizable rendering for visual
@@ -147,6 +148,7 @@ function UploadWatchFace() {
       const res = await watch.uploadWatchFace(buffer, setProgress, {
         signal: controller.signal,
         sendTransferConfig,
+        blast,
       })
       setResult(res)
       setStatus('done')
@@ -366,6 +368,17 @@ function UploadWatchFace() {
             don&apos;t leave this tab during upload.
           </div>
         </div>
+        <label className="hint" style={{ display: 'block', margin: '8px 0' }}>
+          <input
+            type="checkbox"
+            checked={blast}
+            onChange={(e) => setBlast(e.target.checked)}
+            disabled={uploading}
+          />{' '}
+          <strong>Blast mode</strong> (DaFup model: all 512B chunks back-to-back,
+          no per-chunk handshake) — required for Icon Lite MOY-8Y82, which
+          rejects the classic handshake after chunk 1
+        </label>
         <label className="hint" style={{ display: 'block', margin: '8px 0' }}>
           <input
             type="checkbox"
