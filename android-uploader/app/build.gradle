@@ -1,0 +1,36 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.dafit.uploader'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.dafit.uploader'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    buildTypes {
+        debug {
+            // Keep the APK debuggable so logcat + result file are easy to read.
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// No third-party dependencies on purpose: pure framework BLE so the APK
+// builds anywhere (CI runner, on-device Gradle) with zero extra downloads
+// beyond the Android Gradle Plugin itself.
+dependencies {
+}

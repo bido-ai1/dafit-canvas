@@ -1,0 +1,7 @@
+// Top-level build file for the DaFit native BLE uploader.
+// Build with a system Gradle (no wrapper jar committed):
+//   gradle :app:assembleDebug   (run inside android-uploader/)
+// CI builds it via .github/workflows/build-uploader-apk.yml.
+plugins {
+    id 'com.android.application' version '8.1.4' apply false
+}
