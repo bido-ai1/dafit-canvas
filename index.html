@@ -1,1 +1,118 @@
-<!DOCTYPE html> <html lang="ar" dir="rtl"> <head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width,initial-scale=1"> <title>Art Background</title> <style> * { box-sizing: border-box; } html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #e8dcc5; } canvas { position: fixed; inset: 0; } .scene { position: relative; width: 100vw; height: 100vh; overflow: hidden; background: radial-gradient(circle at 50% 35%, #f5eddd 0 18%, transparent 50%), #e8dcc5; } /* الشخصية */ .figure { position: absolute; width: min(72vw, 520px); height: 92vh; left: 50%; bottom: -5vh; transform: translateX(-50%); } /* ظلال خلف الشخصية */ .halo { position: absolute; width: 75%; height: 75%; left: 12%; top: 12%; border-radius: 50%; background: rgba(0,0,0,.06); filter: blur(20px); } /* SVG */ svg { width: 100%; height: 100%; overflow: visible; } /* حركة بسيطة */ .body { transform-origin: 50% 90%; animation: breathe 5s ease-in-out infinite; } @keyframes breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.008, .995); } } /* زخارف الخلفية */ .shape { position: absolute; border: 3px solid #111; border-radius: 50%; opacity: .15; } .s1 { width: 25vw; height: 25vw; left: -8vw; top: 12vh; } .s2 { width: 18vw; height: 18vw; right: -4vw; bottom: 15vh; } .s3 { width: 9vw; height: 9vw; right: 14vw; top: 8vh; } </style> </head> <body> <div class="scene"> <div class="shape s1"></div> <div class="shape s2"></div> <div class="shape s3"></div> <div class="figure"> <div class="halo"></div> <svg viewBox="0 0 500 900" xmlns="http://www.w3.org/2000/svg"> <g class="body"> <!-- الرأس --> <ellipse cx="250" cy="105" rx="62" ry="75" fill="#111"/> <!-- الشعر --> <path d="M185 115 C160 35 215 15 265 25 C335 38 340 110 310 155 C295 125 278 105 250 90 C225 105 205 130 190 165 C175 150 168 130 185 115Z" fill="#111"/> <!-- الرقبة --> <path d="M220 160 L280 160 L292 235 L208 235 Z" fill="#111"/> <!-- الجسم العام --> <path d=" M208 205 C180 230 166 275 158 330 C150 385 160 430 180 470 C145 540 135 625 150 710 C162 780 190 850 205 890 L295 890 C310 850 338 780 350 710 C365 625 355 540 320 470 C340 430 350 385 342 330 C334 275 320 230 292 205 C270 190 230 190 208 205Z" fill="#111"/> <!-- قماش زخرفي --> <path d=" M155 300 C205 260 300 260 345 305 C325 355 305 390 290 430 C260 410 235 410 205 430 C190 390 170 350 155 300Z" fill="#e8dcc5" stroke="#111" stroke-width="7"/> <!-- طيات القماش --> <path d="M180 315 Q250 350 320 315" fill="none" stroke="#111" stroke-width="6"/> <path d="M195 350 Q250 380 305 350" fill="none" stroke="#111" stroke-width="5"/> <!-- ظل فني سفلي --> <path d=" M175 470 Q250 520 325 470 Q310 545 250 570 Q190 545 175 470Z" fill="#e8dcc5" stroke="#111" stroke-width="7"/> <!-- خط زخرفي --> <path d="M120 650 Q250 590 380 650" fill="none" stroke="#e8dcc5" stroke-width="10" opacity=".9"/> </g> </svg> </div> </div> </body> </html> 
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- Primary meta -->
+    <title>DaFit Canvas — Smartwatch Face Editor for Da Fit / MoYoung</title>
+    <meta
+      name="description"
+      content="Browser-based visual editor for Da Fit / MoYoung Type C smartwatch faces. Import .bin files, edit layers, regenerate digits from any font, and flash to your watch over Web Bluetooth — all offline, all in your browser."
+    />
+    <meta
+      name="keywords"
+      content="Da Fit, MoYoung, smartwatch, watch face editor, watchface, Type C, RGB565, 240x240, dawft, dawfu, BLE upload, Web Bluetooth, Porodo Vortex, MOY-GKE5"
+    />
+    <meta name="author" content="Mohammed Ashad" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#aa3bff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0d0a16" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- Canonical -->
+    <link rel="canonical" href="https://github.com/e-labInnovations/DaFit-Canvas" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="mask-icon" href="/favicon.svg" color="#aa3bff" />
+
+    <!-- PWA manifest -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="DaFit Canvas" />
+    <meta property="og:title" content="DaFit Canvas — Smartwatch Face Editor" />
+    <meta
+      property="og:description"
+      content="Design and flash Da Fit / MoYoung smartwatch faces in your browser. Visual layer editor, font-to-digit generation, Web Bluetooth upload — offline-first."
+    />
+    <meta property="og:url" content="https://github.com/e-labInnovations/DaFit-Canvas" />
+    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="DaFit Canvas — smartwatch face editor" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="DaFit Canvas — Smartwatch Face Editor" />
+    <meta
+      name="twitter:description"
+      content="Design and flash Da Fit / MoYoung smartwatch faces in your browser."
+    />
+    <meta name="twitter:image" content="/og-image.png" />
+    <meta name="twitter:image:alt" content="DaFit Canvas — smartwatch face editor" />
+
+    <!-- Structured data: SoftwareApplication -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "DaFit Canvas",
+        "applicationCategory": "DesignApplication",
+        "operatingSystem": "Web Browser",
+        "description": "Browser-based visual editor for Da Fit / MoYoung Type C smartwatch faces. Import .bin files, edit layers, regenerate digits from any font, and flash to a watch over Web Bluetooth.",
+        "url": "https://github.com/e-labInnovations/DaFit-Canvas",
+        "image": "/og-image.png",
+        "author": {
+          "@type": "Person",
+          "name": "Mohammed Ashad",
+          "url": "https://github.com/e-labInnovations"
+        },
+        "license": "https://opensource.org/licenses/MIT",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "featureList": [
+          "Import and decode Type C .bin watch faces",
+          "Layer-based visual editor on a 240×240 canvas",
+          "Shared asset library across layers",
+          "Font-to-digit glyph generation",
+          "Per-blob RLE vs raw compression preserved on round-trip",
+          "MoYoung face browser",
+          "Web Bluetooth upload to the watch"
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <noscript>
+      <h1>DaFit Canvas</h1>
+      <p>
+        DaFit Canvas is a browser-based visual editor for designing
+        smartwatch faces compatible with the Da Fit / MoYoung ecosystem.
+        Import an existing Type C <code>.bin</code>, swap assets, retouch
+        positions, regenerate digits from a font, and export a watch-ready
+        binary — without ever touching a hex editor.
+      </p>
+      <p>
+        This application requires JavaScript to run. Please enable
+        JavaScript in your browser. Source code and documentation are
+        available at
+        <a href="https://github.com/e-labInnovations/DaFit-Canvas">
+          github.com/e-labInnovations/DaFit-Canvas
+        </a>.
+      </p>
+    </noscript>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
