@@ -1,5 +1,6 @@
 package com.dafit.uploader;
 
+import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -12,9 +13,15 @@ import android.bluetooth.BluetoothManager;
 import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -77,6 +84,10 @@ public class UploadActivity extends Activity {
 
     private TextView logView;
     private final StringBuilder logBuf = new StringBuilder();
+    private Uri pickedUri = null;
+    private Runnable pendingStart = null;
+    private static final int REQ_PERMS = 1001;
+    private static final int REQ_PICK_FILE = 1002;
 
     // Queues fed by the GATT callback thread.
     private final LinkedBlockingQueue<byte[]> notifyQ = new LinkedBlockingQueue<>();
@@ -114,27 +125,208 @@ public class UploadActivity extends Activity {
         String file = intent != null ? intent.getStringExtra("file") : null;
         boolean xfer = intent != null && intent.getBooleanExtra("xfer", false);
         if (deviceName == null) deviceName = "Icon Lite";
+        if (file == null || file.isEmpty()) {
+            // Tapped icon / no extras → manual form so the app is usable
+            // by touch, no shell commands needed.
+            final String dev = deviceName;
+            final boolean useXfer = xfer;
+            runOnUiThread(() -> showManualForm(dev, useXfer));
+            return;
+        }
         final String dev = deviceName;
         final String path = file;
         final boolean useXfer = xfer;
         new Thread(() -> {
             try {
-                runUpload(dev, path, useXfer);
+                byte[] image = readAll(new File(path));
+                log("file=" + path + " size=" + image.length + "B chunks="
+                        + ((image.length + CHUNK_SIZE - 1) / CHUNK_SIZE));
+                runUploadBytes(dev, image, path, useXfer);
             } catch (Exception e) {
                 report("FATAL: " + e, null);
             }
         }, "dafit-upload").start();
     }
 
+    // ---------------- manual (touch) mode ----------------
+
+    private void showManualForm(String defaultDev, boolean defaultXfer) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (12 * getResources().getDisplayMetrics().density);
+        root.setPadding(pad, pad, pad, pad);
+
+        final EditText devInput = new EditText(this);
+        devInput.setHint("Watch name (bonded)");
+        devInput.setText(defaultDev);
+        root.addView(devInput);
+
+        LinearLayout fileRow = new LinearLayout(this);
+        fileRow.setOrientation(LinearLayout.HORIZONTAL);
+        final EditText fileInput = new EditText(this);
+        fileInput.setHint("Watch face .bin");
+        fileInput.setText("/sdcard/test-face.bin");
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        fileRow.addView(fileInput, lp);
+        Button pickBtn = new Button(this);
+        pickBtn.setText("…");
+        pickBtn.setOnClickListener(v -> {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.setType("*/*");
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            startActivityForResult(i, REQ_PICK_FILE);
+        });
+        fileRow.addView(pickBtn);
+        root.addView(fileRow);
+
+        final CheckBox xferBox = new CheckBox(this);
+        xferBox.setText("Send transfer-config step (DaFup)");
+        xferBox.setChecked(defaultXfer);
+        root.addView(xferBox);
+
+        Button startBtn = new Button(this);
+        startBtn.setText("Send to watch");
+        root.addView(startBtn);
+
+        logView.setText(logBuf.toString());
+        ScrollView sv = new ScrollView(this);
+        sv.addView(logView);
+        root.addView(sv, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        setContentView(root);
+
+        ui("Manual mode: pick a .bin (or type its path), then Send to watch.\n"
+                + "The watch must be BONDED and the DaFit app closed.\n");
+
+        startBtn.setOnClickListener(v -> {
+            final String dev = devInput.getText().toString().trim();
+            final String pathTxt = fileInput.getText().toString().trim();
+            final boolean useXfer = xferBox.isChecked();
+            ensurePermsThen(() -> new Thread(() -> {
+                try {
+                    byte[] image;
+                    String label;
+                    if (pickedUri != null && pathTxt.startsWith("content:")) {
+                        image = readUri(pickedUri);
+                        label = pickedUri.toString();
+                    } else {
+                        File f = new File(pathTxt);
+                        if (!f.exists()) {
+                            report("FAIL: file not found: " + pathTxt
+                                    + " — use the … button to pick a .bin, or copy one there.", null);
+                            return;
+                        }
+                        image = readAll(f);
+                        label = pathTxt;
+                    }
+                    log("file=" + label + " size=" + image.length + "B chunks="
+                            + ((image.length + CHUNK_SIZE - 1) / CHUNK_SIZE));
+                    runUploadBytes(dev.isEmpty() ? "Icon Lite" : dev, image, label, useXfer);
+                } catch (Exception e) {
+                    report("FATAL: " + e, null);
+                }
+            }, "dafit-upload").start());
+        });
+    }
+
+    private void ensurePermsThen(Runnable r) {
+        java.util.ArrayList<String> missing = new java.util.ArrayList<>();
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
+                != PackageManager.PERMISSION_GRANTED) {
+            missing.add(Manifest.permission.BLUETOOTH_CONNECT);
+        }
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN)
+                != PackageManager.PERMISSION_GRANTED) {
+            missing.add(Manifest.permission.BLUETOOTH_SCAN);
+        }
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            missing.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        if (Build.VERSION.SDK_INT <= 32 && checkSelfPermission(
+                Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            missing.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+        }
+        if (missing.isEmpty()) {
+            r.run();
+        } else {
+            pendingStart = r;
+            requestPermissions(missing.toArray(new String[0]), REQ_PERMS);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_PERMS) {
+            boolean ok = true;
+            for (int g : grantResults) if (g != PackageManager.PERMISSION_GRANTED) ok = false;
+            if (ok && pendingStart != null) {
+                Runnable r = pendingStart;
+                pendingStart = null;
+                r.run();
+            } else {
+                ui("Permissions denied — grant Bluetooth/Location to upload.\n");
+            }
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_PICK_FILE && resultCode == RESULT_OK && data != null
+                && data.getData() != null) {
+            pickedUri = data.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(pickedUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) {
+            }
+            ui("picked: " + pickedUri + "\n");
+            // Reflect into the visible file field if the form is showing.
+            android.view.View root = findViewById(android.R.id.content);
+            if (root instanceof android.view.ViewGroup) {
+                setFileFieldText((android.view.ViewGroup) root, pickedUri.toString());
+            }
+        }
+    }
+
+    private void setFileFieldText(android.view.ViewGroup g, String text) {
+        for (int i = 0; i < g.getChildCount(); i++) {
+            android.view.View c = g.getChildAt(i);
+            if (c instanceof EditText && ((EditText) c).getHint() != null
+                    && ((EditText) c).getHint().toString().contains(".bin")) {
+                ((EditText) c).setText(text);
+                return;
+            }
+            if (c instanceof android.view.ViewGroup) setFileFieldText((android.view.ViewGroup) c, text);
+        }
+    }
+
+    private byte[] readUri(Uri uri) throws Exception {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new Exception("cannot open " + uri);
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] tmp = new byte[8192];
+            int r;
+            long total = 0;
+            while ((r = in.read(tmp)) >= 0) {
+                total += r;
+                if (total > 2_000_000) throw new Exception("file too large");
+                bos.write(tmp, 0, r);
+            }
+            return bos.toByteArray();
+        }
+    }
+
     // ---------------- upload flow ----------------
 
-    private void runUpload(String deviceName, String path, boolean useXfer) throws Exception {
-        if (path == null || path.isEmpty()) {
-            report("FAIL: missing -e file <path> extra. Example: -e file /sdcard/test-face.bin", null);
+    private void runUploadBytes(String deviceName, byte[] image, String label, boolean useXfer) throws Exception {
+        if (image.length == 0) {
+            report("FAIL: empty file: " + label, null);
             return;
         }
-        byte[] image = readAll(new File(path));
-        log("file=" + path + " size=" + image.length + "B chunks=" + ((image.length + CHUNK_SIZE - 1) / CHUNK_SIZE));
 
         BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         if (bm == null) {

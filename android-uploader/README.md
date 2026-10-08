@@ -26,7 +26,19 @@ the `android-uploader` branch and attaches `app-debug.apk` as an artifact.
 Requirements: JDK 17, Android SDK (compileSdk 34, build-tools 34), no other
 dependencies — pure framework BLE, zero libraries.
 
-## Install + permissions (rish shell, no taps after install)
+## Use by touch (no commands)
+
+Just open the app: type (or pick with `…`) a `.bin` face file, optionally tick
+the transfer-config box, then **Send to watch**. The app asks for
+Bluetooth/Location permission itself on first run. The watch must be BONDED
+(pair once via system settings or the Da Fit app) and the Da Fit app must be
+closed/force-stopped so it releases the BLE link.
+
+Tip: grab any `.bin` from the DaFit Canvas `/watch-faces` page (or the
+`test-face.bin` from the issue) and pick it with the `…` button — the picker
+needs no storage permission at all.
+
+## Use headlessly (rish shell, no taps)
 
 ```sh
 # 1. install (one user tap if done from UI, or headless via shell)
